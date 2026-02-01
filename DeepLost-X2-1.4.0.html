@@ -1,0 +1,504 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>DeepLost X2 - 先进语言模型</title>
+<style>
+  :root{--bg:#f8f9fa;--card:#fff;--primary:#0066cc;--muted:#6c757d;--danger:#dc3545;--text:#212529;--muted-text:#666}
+  html,body{height:100%;margin:0;font-family:"Microsoft YaHei","Segoe UI",Tahoma,Arial,Helvetica,sans-serif;background:linear-gradient(180deg,#eef2f7, #fff);}
+  body{background:var(--bg);color:var(--text);transition:background .25s ease,color .25s ease}
+  /* Dark theme */
+  body.dark{--bg:#071023;--card:#0f1724;--primary:#4ea8ff;--muted:#9aa4b2;--danger:#ff6b6b;--text:#e6eef6;--muted-text:#93a1b1;background:linear-gradient(180deg,#071023,#081426)}
+
+  .container{max-width:900px;margin:24px auto;padding:12px;display:flex;flex-direction:column;gap:12px;height:calc(100vh - 48px);}
+  .output{flex:1;background:var(--card);border-radius:8px;padding:14px;overflow:auto;box-shadow:0 1px 3px rgba(0,0,0,0.06);color:var(--text);white-space:pre-wrap}
+  .status{font-size:14px;color:var(--primary)}
+  .controls{display:flex;gap:8px;align-items:center}
+  .controls .left{display:flex;gap:8px;align-items:center;flex:1}
+  input[type=text]{flex:1;padding:10px;border-radius:6px;border:1px solid rgba(0,0,0,0.08);font-size:14px;background:transparent;color:var(--text)}
+  button{padding:9px 12px;border-radius:6px;border:0;background:var(--primary);color:#fff;font-weight:600;cursor:pointer}
+  .btn-muted{background:var(--muted);color:#fff}
+  .btn-danger{background:var(--danger)}
+  .btn-ghost{background:transparent;border:1px solid rgba(0,0,0,0.06);color:var(--text)}
+  select{padding:8px;border-radius:6px;border:1px solid rgba(0,0,0,0.08);font-size:14px;background:transparent;color:var(--text)}
+  .bottom{display:flex;justify-content:space-between;align-items:center;gap:8px}
+  .small{font-size:13px;color:var(--muted-text)}
+  .divider{height:1px;background:rgba(0,0,0,0.06);margin:8px 0}
+  .note{color:var(--muted-text);font-size:13px}
+  .footer{font-size:12px;color:var(--muted-text);text-align:center}
+
+  /* Responsive improvements */
+  @media (max-width: 700px){
+    .container{margin:12px;padding:10px;height:calc(100vh - 36px)}
+    .controls{flex-direction:column;align-items:stretch}
+    .controls .left{width:100%}
+    .controls .right{display:flex;justify-content:space-between;margin-top:8px}
+    .bottom{flex-direction:column;align-items:flex-start;gap:6px}
+    .output{padding:12px;font-size:14px}
+    button, select, input[type=text]{font-size:14px}
+  }
+
+  /* Compact on very small screens */
+  @media (max-width: 420px){
+    .container{padding:8px}
+    input[type=text]{padding:8px}
+    button{padding:8px}
+  }
+
+  /* Modal */
+  .modal{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,0.45);z-index:60}
+  .modal-content{background:var(--card);color:var(--text);border-radius:10px;padding:16px;max-width:480px;width:92%;box-shadow:0 8px 24px rgba(0,0,0,0.4)}
+  .modal-content h3{margin:0 0 8px 0}
+  .modal-content .note{margin:0 0 8px 0}
+  @media (max-width:700px){ .modal-content{width:94%;padding:12px} }
+
+</style>
+</head>
+<body>
+<div class="container">
+  <div class="output" id="output"></div>
+  <div class="status" id="status">启动中...</div>
+
+  <div class="controls">
+    <div class="left">
+      <input type="text" id="input" placeholder="请输入请求或主题，按回车发送" />
+      <select id="model">
+        <option value="thinking">thinking</option>
+        <option value="fast">fast</option>
+      </select>
+      <button id="send">发送</button>
+    </div>
+    <div class="right">
+      <button id="about" class="btn-muted" title="关于">关于</button>
+      <button id="settings" class="btn-ghost" title="设置">设置</button>
+    </div>
+  </div>
+
+  <div class="bottom">
+    <div style="display:flex;align-items:center;gap:8px">
+      <span class="small">长度:</span>
+      <select id="length">
+        <option>短</option>
+        <option selected>中</option>
+        <option>长</option>
+      </select>
+    </div>
+    <div style="display:flex;gap:8px;align-items:center">
+      <button id="copy" class="btn-ghost" title="复制输出到剪贴板">复制</button>
+      <button id="save" class="btn-ghost" title="保存输出为文本">保存为文本</button>
+      <button id="theme-toggle" class="btn-ghost" title="切换深色/浅色主题">深色主题</button>
+      <button id="end" class="btn-danger">结束对话</button>
+    </div>
+  </div>
+
+  <!-- Settings modal -->
+  <div id="settings-modal" class="modal" aria-hidden="true" style="display:none;">
+    <div class="modal-content" role="dialog" aria-modal="true" aria-labelledby="settings-title">
+      <h3 id="settings-title">主题设置</h3>
+      <p class="note">选择主题模式：<br>“始终深色”= 始终使用深色；“跟随系统”= 自动随系统切换；“手动切换”= 使用下面的主题按钮切换。</p>
+      <div style="margin-top:8px;display:flex;flex-direction:column;gap:8px">
+        <label><input type="radio" name="theme-mode" value="dark"> 始终深色</label>
+        <label><input type="radio" name="theme-mode" value="system"> 跟随系统</label>
+        <label><input type="radio" name="theme-mode" value="manual"> 手动切换（使用右下主题按钮）</label>
+      </div>
+      <div id="manual-state-row" style="margin-top:8px;display:none;gap:8px;align-items:center">
+        <span class="small">手动初始状态:</span>
+        <label><input type="radio" name="manual-state" value="light"> 浅色</label>
+        <label><input type="radio" name="manual-state" value="dark"> 深色</label>
+      </div>
+      <div style="margin-top:12px;display:flex;gap:8px;justify-content:flex-end">
+        <button id="reset-system" class="btn-ghost">恢复系统跟随</button>
+        <button id="settings-cancel" class="btn-ghost">取消</button>
+        <button id="settings-save">保存</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="divider"></div>
+  <div class="footer">DeepLost X2 • 版本 1.4.0 • © Fanatic Star 2026</div>
+</div>
+
+<script>
+const VERSION = '1.4.0';
+const outputEl = document.getElementById('output');
+const statusEl = document.getElementById('status');
+const inputEl = document.getElementById('input');
+const sendBtn = document.getElementById('send');
+const modelEl = document.getElementById('model');
+const lengthEl = document.getElementById('length');
+const aboutBtn = document.getElementById('about');
+const endBtn = document.getElementById('end');
+const copyBtn = document.getElementById('copy');
+const saveBtn = document.getElementById('save');
+const themeToggle = document.getElementById('theme-toggle');
+
+let firstResponse = true;
+let dotTimer = null;
+let dotCount = 0;
+let dotLimit = 10;
+let dotInterval = 280;
+let finalDelay = 600;
+let processingBase = '';
+let ended = false;
+
+const LENGTH_RANGES = { 短:[100,500], 中:[500,1000], 长:[1000,2000] };
+const common_chars = [
+"的","一","是","在","不","了","有","和","人","这","中","大","为","上","个","国","我","以","要","他",
+"时","来","用","们","生","到","作","地","于","出","就","分","对","成","会","可","主","发","年","动",
+"同","工","也","能","下","过","子","说","产","种","面","而","方","后","多","定","行","学","法","所",
+"民","得","经","十","三","之","进","着","等","部","度","家","电","力","里","如","水","化","高","自",
+"二","理","起","小","物","现","实","加","量","都","两","体","制","机","当","使","点","从","业","本",
+"去","把","性","好","应","开","它","合","还","因","由","其","些","然","前","外","天","政","四","日",
+"那","社","义","事","平","形","相","全","表","间","样","与","关","各","重","新","线","内","数","正",
+"心","反","你","明","看","原","又","么","利","比","或","但","质","气","第","向","道","命","此","变",
+"条","只","没","结","解","问","意","建","月","公","无","系","军","很","情","者","最","立","代","想",
+"已","通","并","提","直","题","党","程","展","五","果","料","象","员","次","位","常","文","总","次",
+"品","式","活","设","及","管","特","件","长","求","老","头","基","资","边","流","路","级","少","图",
+"山","统","接","知","较","将","组","见","计","别","她","手","角","期","根","论","运","农","指","几",
+"九","区","强","放","决","西","被","干","做","必","战","先","回","则","任","取","据","处","队","南",
+"给","色","光","门","即","保","治","北","造","百","规","热","领","七","海","口","东","导","器","压",
+"志","世","金","增","争","济","阶","油","思","术","极","交","受","联","什","认","六","共","权","收",
+"证","改","清","美","再","采","转","更","单","风","切","打","白","教","速","花","带","安","场","身",
+"车","例","真","务","具","万","每","目","至","达","走","积","示","议","声","报","斗","完","类","八",
+"离","华","名","确","才","科","张","信","马","节","话","米","整","空","元","况","今","集","温","传",
+"土","许","步","群","广","石","记","需","段","研","界","拉","林","律","叫","且","究","观","越","织",
+"装","影","算","低","持","音","众","书","布","复","容","儿","须","际","商","非","验","连","断","深",
+"难","近","矿","千","周","委","素","技","备","半","办","青","省","列","习","响","约","支","般","史",
+"感","劳","便","团","往","酸","历","市","克","何","除","消","构","府","称","太","准","精","值","号",
+"率","族","维","划","选","标","写","存","候","毛","亲","快","效","斯","院","查","江","型","眼","王"
+];
+
+function appendOutput(text){
+  outputEl.textContent += text;
+  outputEl.scrollTop = outputEl.scrollHeight;
+}
+
+// Startup sequence (shortened to ~1s total)
+const startupMessages = [
+  ["初始化智能系统...", 250],
+  ["加载语言模型..........", 300],
+  ["连接语义网络..........", 200],
+  ["系统就绪！", 0]
+];
+let startupStep = 0;
+function nextStartup(){
+  if(startupStep >= startupMessages.length) return;
+  const [msg,delay] = startupMessages[startupStep];
+  statusEl.textContent = msg;
+  startupStep++;
+  if(startupStep < startupMessages.length){
+    setTimeout(nextStartup, delay);
+  }else{
+    setTimeout(showGreeting, 200);
+  }
+}
+
+function showGreeting(){
+  appendOutput('【AI助手】您好！我是DeepLost-X2，一个先进的语言模型。\n');
+  appendOutput('【AI助手】我可以帮助您创作诗歌、文章、故事或任何文本内容。\n');
+  appendOutput('【AI助手】请在下方输入您的请求或主题：\n\n');
+  statusEl.textContent = '就绪';
+}
+
+// Event handlers
+sendBtn.addEventListener('click', onSend);
+inputEl.addEventListener('keydown', (e)=>{ if(e.key==='Enter') onSend(); });
+aboutBtn.addEventListener('click', ()=>{
+  alert(`DeepLost X2\n版本: ${VERSION}\n© Fanatic Star 2026\n保留所有权利。`);
+});
+// copy/save/theme
+copyBtn.addEventListener('click', copyOutput);
+saveBtn.addEventListener('click', saveOutput);
+themeToggle.addEventListener('click', toggleTheme);
+
+modelEl.addEventListener('change', ()=>{
+  if(modelEl.value === 'fast'){
+    lengthEl.disabled = true;
+    lengthEl.value = '短';
+  }else{
+    lengthEl.disabled = false;
+  }
+});
+
+endBtn.addEventListener('click', onEndConversation);
+
+// Theme initialization, system follow, and settings modal
+const mq = window.matchMedia('(prefers-color-scheme: dark)');
+const settingsBtn = document.getElementById('settings');
+const settingsModal = document.getElementById('settings-modal');
+const settingsSave = document.getElementById('settings-save');
+const settingsCancel = document.getElementById('settings-cancel');
+const resetSystemBtn = document.getElementById('reset-system');
+
+function applyDark(d){
+  if(d){
+    document.body.classList.add('dark');
+    themeToggle.textContent = '浅色主题';
+  } else {
+    document.body.classList.remove('dark');
+    themeToggle.textContent = '深色主题';
+  }
+}
+
+let mqListener = null;
+function listenSystemChange(enable){
+  if(enable && !mqListener){
+    mqListener = (e)=>{ if(localStorage.getItem('dl_theme_mode') === 'system') applyDark(e.matches); };
+    mq.addEventListener('change', mqListener);
+  } else if(!enable && mqListener){
+    mq.removeEventListener('change', mqListener);
+    mqListener = null;
+  }
+}
+
+function applyThemeFromMode(){
+  const mode = localStorage.getItem('dl_theme_mode');
+  if(mode === 'dark'){
+    listenSystemChange(false); applyDark(true);
+  } else if(mode === 'light'){
+    listenSystemChange(false); applyDark(false);
+  } else if(mode === 'system'){
+    listenSystemChange(true); applyDark(mq.matches);
+  } else if(mode === 'manual'){
+    listenSystemChange(false);
+    const manual = localStorage.getItem('dl_manual') || 'light';
+    applyDark(manual === 'dark');
+  } else {
+    // no mode set
+    applyDark(false);
+  }
+}
+
+// Open settings modal and populate current selection
+function openSettings(initialPrompt){
+  settingsModal.style.display = 'flex';
+  settingsModal.setAttribute('aria-hidden','false');
+  // set radio values
+  const mode = localStorage.getItem('dl_theme_mode') || (initialPrompt ? 'system' : 'light');
+  const radios = document.querySelectorAll('input[name="theme-mode"]');
+  radios.forEach(r=> r.checked = (r.value === mode));
+  const manual = localStorage.getItem('dl_manual') || 'light';
+  const manualRadios = document.querySelectorAll('input[name="manual-state"]');
+  manualRadios.forEach(r=> r.checked = (r.value === manual));
+  document.getElementById('manual-state-row').style.display = (mode === 'manual') ? 'flex' : 'none';
+}
+function closeSettings(){
+  settingsModal.style.display = 'none';
+  settingsModal.setAttribute('aria-hidden','true');
+}
+
+settingsBtn.addEventListener('click', ()=> openSettings(false));
+settingsCancel.addEventListener('click', ()=>{ closeSettings(); });
+resetSystemBtn.addEventListener('click', ()=>{ localStorage.setItem('dl_theme_mode','system'); localStorage.setItem('dl_theme_prompt_shown','1'); applyThemeFromMode(); closeSettings(); });
+
+settingsSave.addEventListener('click', ()=>{
+  const sel = document.querySelector('input[name="theme-mode"]:checked');
+  const mode = sel ? sel.value : 'light';
+  if(mode === 'manual'){
+    const manualSel = document.querySelector('input[name="manual-state"]:checked');
+    const manual = manualSel ? manualSel.value : 'light';
+    localStorage.setItem('dl_theme_mode','manual');
+    localStorage.setItem('dl_manual', manual);
+  } else {
+    localStorage.setItem('dl_theme_mode', mode === 'system' ? 'system' : (mode === 'dark' ? 'dark' : 'light'));
+  }
+  localStorage.setItem('dl_theme_prompt_shown','1');
+  applyThemeFromMode();
+  closeSettings();
+});
+
+// Show/hide manual state row when selecting radio options
+const themeRadios = document.querySelectorAll('input[name="theme-mode"]');
+themeRadios.forEach(r => r.addEventListener('change', ()=>{
+  document.getElementById('manual-state-row').style.display = (document.querySelector('input[name="theme-mode"]:checked').value === 'manual') ? 'flex' : 'none';
+}));
+
+// Theme toggle button behavior: switch to manual mode and toggle state
+themeToggle.addEventListener('click', ()=>{
+  const mode = localStorage.getItem('dl_theme_mode');
+  if(mode === 'manual'){
+    const current = localStorage.getItem('dl_manual') || 'light';
+    const next = current === 'dark' ? 'light' : 'dark';
+    localStorage.setItem('dl_manual', next);
+    applyThemeFromMode();
+  } else {
+    // enter manual mode, set manual to opposite of current document state
+    const isDark = document.body.classList.contains('dark');
+    const next = isDark ? 'light' : 'dark';
+    localStorage.setItem('dl_theme_mode','manual');
+    localStorage.setItem('dl_manual', next);
+    localStorage.setItem('dl_theme_prompt_shown','1');
+    applyThemeFromMode();
+  }
+});
+
+// Initialize: If first time, show modal prompt; otherwise apply saved mode
+if(!localStorage.getItem('dl_theme_mode') && !localStorage.getItem('dl_theme_prompt_shown')){
+  // show friendly modal for first-time choice
+  openSettings(true);
+} else {
+  applyThemeFromMode();
+}
+
+
+// Copy to clipboard
+async function copyOutput(){
+  try{
+    await navigator.clipboard.writeText(outputEl.textContent);
+    statusEl.textContent = '已复制到剪贴板';
+    setTimeout(()=>{ if(!ended) statusEl.textContent='就绪'; }, 1500);
+  }catch(e){
+    statusEl.textContent = '复制失败';
+    setTimeout(()=>{ if(!ended) statusEl.textContent='就绪'; }, 1500);
+  }
+}
+
+// Save output as text file
+function saveOutput(){
+  const txt = outputEl.textContent;
+  const blob = new Blob([txt], {type: 'text/plain;charset=utf-8'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  const now = new Date().toISOString().replace(/[:.]/g,'-');
+  a.href = url;
+  a.download = `deep_lost_x2_output_${now}.txt`;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+  statusEl.textContent = '已保存为文本';
+  setTimeout(()=>{ if(!ended) statusEl.textContent='就绪'; }, 1500);
+}
+
+// Toggle dark/light theme
+function toggleTheme(){
+  const isDark = document.body.classList.toggle('dark');
+  themeToggle.textContent = isDark ? '浅色主题' : '深色主题';
+  localStorage.setItem('dl_theme', isDark ? 'dark' : 'light');
+}
+sendBtn.addEventListener('click', onSend);
+inputEl.addEventListener('keydown', (e)=>{ if(e.key==='Enter') onSend(); });
+aboutBtn.addEventListener('click', ()=>{
+  alert(`DeepLost X2\n版本: ${VERSION}\n© Fanatic Star 2026\n保留所有权利。`);
+});
+
+modelEl.addEventListener('change', ()=>{
+  if(modelEl.value === 'fast'){
+    lengthEl.disabled = true;
+    lengthEl.value = '短';
+  }else{
+    lengthEl.disabled = false;
+  }
+});
+
+endBtn.addEventListener('click', onEndConversation);
+
+function onSend(){
+  if(ended) return;
+  const query = inputEl.value.trim();
+  if(!query) return;
+  appendOutput(`\n【用户】: ${query}\n`);
+  inputEl.value = '';
+  statusEl.textContent = '正在分析您的请求...';
+  setTimeout(()=>simulateProcessing(query), 300);
+}
+
+function simulateProcessing(query){
+  const mode = modelEl.value || 'thinking';
+  processingBase = `【系统】正在分析您的请求: "${query}"（模式: ${mode}） 深度神经网络处理中`;
+  statusEl.textContent = processingBase;
+  dotCount = 0;
+  if(mode === 'fast'){
+    dotLimit = 5; dotInterval = 100; finalDelay = 200;
+  }else{ dotLimit = 10; dotInterval = 280; finalDelay = 600; }
+  addDots();
+}
+
+function addDots(){
+  if(dotCount < dotLimit){
+    statusEl.textContent += '.';
+    dotCount++;
+    dotTimer = setTimeout(addDots, dotInterval);
+  }else{
+    setTimeout(generateResponse, finalDelay);
+  }
+}
+
+function randomChoice(arr){ return arr[Math.floor(Math.random()*arr.length)]; }
+function randint(a,b){ return Math.floor(Math.random()*(b-a+1))+a; }
+
+function generateText(){
+  const mode = modelEl.value || 'thinking';
+  if(mode === 'fast'){
+    const length = randint(10,150);
+    let text = '';
+    for(let i=0;i<length;i++) text += randomChoice(common_chars);
+    return text;
+  }
+  const choice = lengthEl.value || '中';
+  const [low,high] = LENGTH_RANGES[choice] || [150,800];
+  let length = randint(low,high);
+  let text = '';
+  for(let i=0;i<length;i++) text += randomChoice(common_chars);
+  const punct = ['，','。','！','？','；','：','、'];
+  // add punctuation at random positions
+  let positions = [];
+  const maxPunct = Math.min(Math.floor(length/12), 40);
+  if(maxPunct>0){
+    while(positions.length < maxPunct){
+      const pos = randint(5, length-6);
+      if(!positions.includes(pos)) positions.push(pos);
+    }
+    positions.sort((a,b)=>a-b);
+    let offset = 0;
+    for(const pos of positions){
+      const p = randomChoice(punct);
+      text = text.slice(0,pos+offset) + p + text.slice(pos+offset);
+      offset += 1;
+    }
+  }
+  // add paragraph breaks
+  const paraCount = Math.max(1, Math.floor(text.length/120));
+  let para_positions = [];
+  if(text.length > 100){
+    while(para_positions.length < paraCount){
+      const pos = randint(50, text.length-51);
+      if(!para_positions.includes(pos)) para_positions.push(pos);
+    }
+    para_positions.sort((a,b)=>a-b);
+    let offset = 0;
+    for(const pos of para_positions){
+      text = text.slice(0,pos+offset) + "\n\n" + text.slice(pos+offset);
+      offset += 2;
+    }
+  }
+  return text;
+}
+
+function generateResponse(){
+  clearTimeout(dotTimer);
+  const text = generateText();
+  const prefix = firstResponse ? '基于您的主题，我创作了以下内容：\n' : '根据您的反馈，我优化了内容：\n';
+  firstResponse = false;
+  appendOutput(`【AI助手】${prefix}`);
+  appendOutput('════════════════════════════════════════\n');
+  appendOutput(text + '\n');
+  appendOutput('════════════════════════════════════════\n\n');
+  appendOutput('【AI助手】您对结果满意吗？请输入反馈或新请求（点击“结束对话”结束会话）。\n');
+  statusEl.textContent = '就绪';
+}
+
+function onEndConversation(){
+  appendOutput('\n【系统】本次会话已结束。感谢使用DeepLost-X2！期待下次为您服务。©Fanatic Star 2026.\n');
+  statusEl.textContent = '会话已结束';
+  inputEl.disabled = true; sendBtn.disabled = true; endBtn.disabled = true; lengthEl.disabled = true; modelEl.disabled = true;
+  if(typeof copyBtn !== 'undefined') copyBtn.disabled = true; if(typeof saveBtn !== 'undefined') saveBtn.disabled = true;
+  ended = true;
+}
+
+// start
+setTimeout(nextStartup, 50);
+</script>
+</body>
+</html>
